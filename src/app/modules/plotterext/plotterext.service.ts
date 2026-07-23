@@ -22,7 +22,7 @@ import { Injectable, computed, effect, isDevMode, signal } from '@angular/core';
 import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { firstValueFrom } from 'rxjs';
 import { SignalKClient } from 'signalk-client-angular';
-import { transformExtent } from 'ol/proj';
+import { transformExtent, toLonLat } from 'ol/proj';
 import * as uuid from 'uuid';
 
 import { AppFacade } from 'src/app/app.facade';
@@ -62,6 +62,7 @@ import {
 import { RouteBufferRegistry } from './route-buffer.registry';
 import { createRouteMethods } from './route-methods';
 import { createChartMethods } from './chart-methods';
+import { createMapMethods } from './map-methods';
 import { createNightModeMethods } from './nightmode-methods';
 import { SKStreamFacade } from 'src/app/modules/skstream/skstream.facade';
 
@@ -1988,59 +1989,48 @@ export class PlotterExtensionService {
   // and resource layers do not refresh after the move.
 
   private mapMethods(): Record<string, MethodHandler> {
-    return {
-      'map.getView': async () => {
-        return {
-          center: this.app.config.map.center,
-          zoom: this.app.config.map.zoomLevel,
-          bounds: this.app.mapExtent()
-        };
-      },
-      'map.center': async (params) => {
-        const { position, zoom } = (params ?? {}) as {
-          position?: [number, number];
-          zoom?: number;
-        };
-        if (
-          !Array.isArray(position) ||
-          position.length !== 2 ||
-          !position.every((v) => typeof v === 'number')
-        ) {
-          throw new RpcError('map.center requires position [lon, lat]', {
-            code: RPC_ERRORS.INVALID_PARAMS,
-            reason: 'INVALID_POSITION'
-          });
-        }
-        this.app.mapMoveRequest.set({
-          center: position as [number, number],
-          ...(typeof zoom === 'number' ? { zoom } : {})
-        });
-        return {};
-      },
-      'map.fitBounds': async (params) => {
-        const { bounds } = (params ?? {}) as { bounds?: number[] };
-        if (
-          !Array.isArray(bounds) ||
-          bounds.length !== 4 ||
-          !bounds.every((v) => typeof v === 'number')
-        ) {
-          throw new RpcError(
-            'map.fitBounds requires bounds [minLon, minLat, maxLon, maxLat]',
-            { code: RPC_ERRORS.INVALID_PARAMS, reason: 'INVALID_BOUNDS' }
-          );
-        }
-        const [minLon, minLat, maxLon, maxLat] = bounds as number[];
-        const center: [number, number] = [
-          (minLon + maxLon) / 2,
-          (minLat + maxLat) / 2
-        ];
+    return createMapMethods({
+      getView: () => ({
+        center: this.app.config.map.center,
+        zoom: this.app.config.map.zoomLevel,
+        bounds: this.app.mapExtent()
+      }),
+      zoomRange: () => ({
+        min: this.app.MAP_ZOOM_EXTENT?.min ?? 2,
+        max: this.app.MAP_ZOOM_EXTENT?.max ?? 28
+      }),
+      moveTo: (center, zoom) =>
         this.app.mapMoveRequest.set({
           center,
-          zoom: this.zoomForBounds(bounds as number[])
-        });
-        return {};
-      }
-    };
+          ...(typeof zoom === 'number' ? { zoom } : {})
+        }),
+      zoomForBounds: (bounds) => this.zoomForBounds(bounds),
+      centerAfterPan: (dx, dy) => this.centerAfterPan(dx, dy)
+    });
+  }
+
+  /**
+   * New map center (`[lon, lat]`) after shifting the viewport by `(dx, dy)`
+   * screen pixels (dx right, dy down). Read-only use of the OL view — the
+   * relative pan target is resolved to an absolute center here and applied
+   * through the host's centering path (see mapMethods). Returns null when the
+   * map is not yet ready.
+   */
+  private centerAfterPan(dx: number, dy: number): Position | null {
+    const map = this.mapService.getMaps()[0];
+    const size = map?.getSize();
+    if (!map || !size) {
+      return null;
+    }
+    const coord = map.getCoordinateFromPixel([
+      size[0] / 2 + dx,
+      size[1] / 2 + dy
+    ]);
+    if (!coord) {
+      return null;
+    }
+    const [lon, lat] = toLonLat(coord);
+    return [lon, lat];
   }
 
   /**
