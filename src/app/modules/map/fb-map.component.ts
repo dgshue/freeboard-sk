@@ -641,6 +641,18 @@ export class FBMapComponent implements OnInit, OnDestroy {
     this.app.mapViewRotation.update(() => e.rotation);
     this.app.config.map.center = e.lonlat as Position;
 
+    // Keep the cursor-position readout current: the view may have moved without
+    // a pointer event (touch pan, programmatic pan/zoom, keyboard), leaving a
+    // different geographic point under the unchanged cursor pixel.
+    if (e.pointerLonLat) {
+      this.mouse.set({
+        pixel: e.pointerPixel,
+        xy: e.pointerCoord,
+        coords: GeoUtils.normaliseCoords(e.pointerLonLat as Position)
+      });
+      this.updateCursorInfo(e.pointerLonLat as Position);
+    }
+
     this.drawVesselLines();
     if (!this.movingMap) {
       // debounce: a flurry of pans/zooms collapses into one save

@@ -23,6 +23,7 @@ import { MapReadyEvent } from './models';
 import { AsyncSubject } from 'rxjs';
 import { toLonLat, transformExtent } from 'ol/proj';
 import { Coordinate } from 'ol/coordinate';
+import { Pixel } from 'ol/pixel';
 import { FeatureLike } from 'ol/Feature';
 import { Extent } from 'ol/extent';
 
@@ -38,6 +39,12 @@ export interface FBMapEvent extends MapEvent {
   rightCenter: Coordinate;
   /** OL view rotation in radians (CCW positive) at the time of the event */
   rotation: number;
+  /** Last known pointer pixel, or null if the pointer has not been over the map */
+  pointerPixel: Pixel | null;
+  /** Projected coords under {@link pointerPixel} after the move (null if unknown) */
+  pointerCoord: Coordinate | null;
+  /** Geographic coords [lon, lat] under {@link pointerPixel} after the move (null if unknown) */
+  pointerLonLat: Coordinate | null;
 }
 
 export interface FBClickEvent extends MapBrowserEvent<PointerEvent> {
@@ -391,6 +398,10 @@ export class MapComponent implements OnInit, OnDestroy {
     });
   }
 
+  // Last pixel the pointer was seen at (see emitPointerMoveEvent). Used to keep
+  // the cursor-position readout current on move-end.
+  private lastPointerPixel: Pixel | null = null;
+
   private zoomAtStart: number;
   private emitMoveStartEvent = (event: MapEvent) => {
     this.zoomAtStart = this.map.getView().getZoom();
@@ -405,6 +416,7 @@ export class MapComponent implements OnInit, OnDestroy {
   // ** add {lonlat, zoom, extent, projCode, topCenter, rightCenter, rotation} fields to event
   private augmentMoveEvent(event: MapEvent) {
     const zoom = this.map.getView().getZoom();
+    const pointer = this.pointerLonLatAfterMove();
     return Object.assign(event, {
       lonlat: this.getMapCenter(),
       zoom: zoom,
@@ -413,8 +425,38 @@ export class MapComponent implements OnInit, OnDestroy {
       projCode: this.map.getView().getProjection().getCode(),
       topCenter: this.getMapViewTopCenter(),
       rightCenter: this.getMapViewRightCenter(),
-      rotation: this.map.getView().getRotation()
+      rotation: this.map.getView().getRotation(),
+      pointerPixel: pointer.pixel,
+      pointerCoord: pointer.coord,
+      pointerLonLat: pointer.lonlat
     });
+  }
+
+  /**
+   * Geographic coords currently under the last known pointer pixel, recomputed
+   * from the live view so the cursor readout stays correct when the map moved
+   * without a pointer event (touch pan, programmatic pan/zoom, keyboard).
+   * getCoordinateFromPixel is rotation-aware. Returns nulls when the pointer has
+   * not been over the map.
+   */
+  private pointerLonLatAfterMove(): {
+    pixel: Pixel | null;
+    coord: Coordinate | null;
+    lonlat: Coordinate | null;
+  } {
+    const pixel = this.lastPointerPixel;
+    if (!this.map || !pixel) {
+      return { pixel: null, coord: null, lonlat: null };
+    }
+    const coord = this.map.getCoordinateFromPixel(pixel);
+    if (!coord) {
+      return { pixel: null, coord: null, lonlat: null };
+    }
+    return {
+      pixel,
+      coord,
+      lonlat: toLonLat(coord, this.map.getView().getProjection())
+    };
   }
 
   private emitPointerDragEvent = (event: MapBrowserEvent<PointerEvent>) => {
@@ -424,6 +466,10 @@ export class MapComponent implements OnInit, OnDestroy {
     this.mapPointerDrag.emit(this.augmentPointerEvent(event));
   };
   private emitPointerMoveEvent = (event: MapBrowserEvent<PointerEvent>) => {
+    // Remember where the cursor is so move-end can recompute the geographic
+    // point under it when the view changes without a pointer event (touch pan,
+    // programmatic pan/zoom, keyboard).
+    this.lastPointerPixel = event.pixel;
     this.clearTimerIfMoved(event);
     this.mapPointerMove.emit(this.augmentPointerEvent(event));
   };
