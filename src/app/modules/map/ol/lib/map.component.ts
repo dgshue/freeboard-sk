@@ -433,29 +433,37 @@ export class MapComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Geographic coords currently under the last known pointer pixel, recomputed
-   * from the live view so the cursor readout stays correct when the map moved
-   * without a pointer event (touch pan, programmatic pan/zoom, keyboard).
-   * getCoordinateFromPixel is rotation-aware. Returns nulls when the pointer has
-   * not been over the map.
+   * Geographic coords to show in the cursor readout after a move, recomputed
+   * from the live view so it stays correct when the map moved without a pointer
+   * event (touch pan, programmatic pan/zoom, keyboard). getCoordinateFromPixel
+   * and getCenter are both rotation-aware.
+   *
+   * When a pointer has positioned a cursor, use the point under that pixel.
+   * When none has (e.g. a touchscreen chartplotter panned by rotary encoders,
+   * where no mouse/touch cursor exists), fall back to the view centre — the
+   * sensible coordinate to report for the current view. Returns nulls only if
+   * the map is not yet ready.
    */
   private pointerLonLatAfterMove(): {
     pixel: Pixel | null;
     coord: Coordinate | null;
     lonlat: Coordinate | null;
   } {
-    const pixel = this.lastPointerPixel;
-    if (!this.map || !pixel) {
+    if (!this.map) {
       return { pixel: null, coord: null, lonlat: null };
     }
-    const coord = this.map.getCoordinateFromPixel(pixel);
+    const view = this.map.getView();
+    const pixel = this.lastPointerPixel;
+    const coord = pixel
+      ? this.map.getCoordinateFromPixel(pixel)
+      : view.getCenter();
     if (!coord) {
       return { pixel: null, coord: null, lonlat: null };
     }
     return {
-      pixel,
+      pixel: pixel ?? null,
       coord,
-      lonlat: toLonLat(coord, this.map.getView().getProjection())
+      lonlat: toLonLat(coord, view.getProjection())
     };
   }
 

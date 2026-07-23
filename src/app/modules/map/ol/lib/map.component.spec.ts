@@ -7,10 +7,13 @@ import { MapComponent } from './map.component';
  * pointer event (touch pan, programmatic pan/zoom, keyboard). MapComponent
  * records the last pointer pixel on pointer-move and, on move-end, recomputes
  * the geographic point under that (unchanged) pixel from the live view via
- * `getCoordinateFromPixel`. `pointerLonLatAfterMove()` is the pure recompute
- * step; it only reads `this.map` and `this.lastPointerPixel`, so exercise it on
- * a bare prototype instance with a stub map — no Angular DI needed (same
- * approach as the ais-base spec).
+ * `getCoordinateFromPixel`. When no pointer has ever positioned a cursor (a
+ * touchscreen chartplotter panned by rotary encoders), it falls back to the
+ * view centre so the readout is meaningful instead of stuck at [0,0].
+ * `pointerLonLatAfterMove()` is the pure recompute step; it only reads
+ * `this.map` and `this.lastPointerPixel`, so exercise it on a bare prototype
+ * instance with a stub map — no Angular DI needed (same approach as the
+ * ais-base spec).
  */
 type PointerRecompute = {
   lastPointerPixel: number[] | null;
@@ -24,27 +27,34 @@ type PointerRecompute = {
 
 // Stub map whose pixel->coordinate mapping is supplied per-call, so a "move" is
 // modelled by returning a different projected coordinate for the same pixel.
+// `center` is the projected view centre used by the no-pointer fallback.
 function component(
   lastPointerPixel: number[] | null,
-  coordForPixel: (pixel: number[]) => number[] | null
+  coordForPixel: (pixel: number[]) => number[] | null,
+  center: number[] = [0, 0]
 ): PointerRecompute {
   const c = Object.create(MapComponent.prototype) as PointerRecompute;
   c.lastPointerPixel = lastPointerPixel;
   c.map = {
     getCoordinateFromPixel: (pixel: number[]) => coordForPixel(pixel),
-    getView: () => ({ getProjection: () => 'EPSG:3857' })
+    getView: () => ({
+      getProjection: () => 'EPSG:3857',
+      getCenter: () => center
+    })
   };
   return c;
 }
 
 describe('MapComponent.pointerLonLatAfterMove — cursor readout on move', () => {
-  it('returns nulls when no pointer pixel has been recorded', () => {
-    const c = component(null, () => [0, 0]);
-    expect(c.pointerLonLatAfterMove()).toEqual({
-      pixel: null,
-      coord: null,
-      lonlat: null
-    });
+  it('falls back to the view centre when no pointer pixel has been recorded', () => {
+    // Encoder/touchscreen case: no cursor was ever positioned.
+    const center = fromLonLat([174.78, -36.85]); // Auckland, EPSG:3857
+    const c = component(null, () => [0, 0], center);
+    const res = c.pointerLonLatAfterMove();
+    expect(res.pixel).toBeNull();
+    expect(res.coord).toEqual(center);
+    expect(res.lonlat[0]).toBeCloseTo(174.78, 6);
+    expect(res.lonlat[1]).toBeCloseTo(-36.85, 6);
   });
 
   it('returns nulls when the pixel maps to no coordinate', () => {
