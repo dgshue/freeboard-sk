@@ -120,6 +120,42 @@ const TOOLS = [
       )
   },
   {
+    name: 'fsk_zoom_by',
+    description:
+      'Zoom the Freeboard-SK map by a relative delta, keeping the current center (positive zooms in, negative out). Models a rotary/rocker zoom control; the result is clamped to the host zoom range.',
+    inputSchema: withSession(
+      {
+        delta: {
+          type: 'number',
+          description: 'Relative zoom change, e.g. +1 / -1 per detent.'
+        }
+      },
+      ['delta']
+    ),
+    run: (hub, a) =>
+      hub.call('map.zoomBy', { delta: a.delta }, { session: a.session })
+  },
+  {
+    name: 'fsk_pan_by',
+    description:
+      'Pan the Freeboard-SK map by a screen-pixel delta (dx right, dy down) at the current resolution. Models a pan knob / drag; a zero delta is a no-op.',
+    inputSchema: withSession(
+      {
+        dx: {
+          type: 'number',
+          description: 'Horizontal shift in pixels (right +).'
+        },
+        dy: {
+          type: 'number',
+          description: 'Vertical shift in pixels (down +).'
+        }
+      },
+      ['dx', 'dy']
+    ),
+    run: (hub, a) =>
+      hub.call('map.panBy', { dx: a.dx, dy: a.dy }, { session: a.session })
+  },
+  {
     name: 'fsk_list_resources',
     description:
       "Query a Signal K resource collection through the host's authenticated session (relayed resources.list). Optionally pass a query object, e.g. { position: [lon,lat], distance: 18520 }.",
@@ -281,11 +317,13 @@ const TOOLS = [
     inputSchema: withSession({
       enabled: {
         type: 'boolean',
-        description: 'Force night mode on (true) or off (false). Implies auto:false.'
+        description:
+          'Force night mode on (true) or off (false). Implies auto:false.'
       },
       auto: {
         type: 'boolean',
-        description: 'Follow the server environment.mode (true) or stop following (false).'
+        description:
+          'Follow the server environment.mode (true) or stop following (false).'
       }
     }),
     run: (hub, a) => {

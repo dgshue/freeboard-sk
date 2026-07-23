@@ -464,6 +464,9 @@ not match and the handshake is refused — a deliberate limitation, not a bug.)
 | `map.getView`           | —                                              | `{ center, zoom, bounds }` |
 | `map.center`            | `{ position: [lon, lat], zoom? }`              | `{}`                       |
 | `map.fitBounds`         | `{ bounds: [minLon, minLat, maxLon, maxLat] }` | `{}`                       |
+| `map.setZoom`           | `{ zoom }`                                      | `{}`                       |
+| `map.zoomBy`            | `{ delta }`                                     | `{}`                       |
+| `map.panBy`             | `{ dx, dy }` (screen pixels)                    | `{}`                       |
 | `nightMode.get`         | —                                              | `{ enabled, auto }`        |
 | `nightMode.set`         | `{ enabled?, auto? }`                           | `{}`                       |
 | `ui.openPanel`          | `{ panel }`                                    | `{}`                       |
@@ -778,6 +781,43 @@ when a fuller snapshot is needed.
 (one of the supplied ids names no managed chart), `charts.badRequest` (invalid
 params — e.g. a missing `ids` array, a non-boolean `visible`, or an out-of-range
 `opacity`), `charts.notSupported` (host lacks `charts`).
+
+### Map view
+
+The `map` capability queries and controls the chart **view** — where the map is
+centered and how far it is zoomed. `map.getView` reads the current state; the
+mutators move it. All positions are `[lon, lat]` (WGS84), matching the rest of
+the API.
+
+**Absolute controls** set the view to a target:
+
+- `map.getView` → `{ center: [lon, lat], zoom, bounds: [minLon, minLat, maxLon,
+  maxLat] }` — the current center, zoom and geographic viewport extent.
+- `map.center({ position: [lon, lat], zoom? })` — recenter, optionally changing
+  zoom (zoom kept when omitted).
+- `map.fitBounds({ bounds: [minLon, minLat, maxLon, maxLat] })` — frame a
+  bounding box in the viewport.
+- `map.setZoom({ zoom })` — set an absolute zoom, keeping the current center.
+
+**Relative controls** nudge the view by an increment — what a hardware control
+(a rotary encoder, a zoom rocker) drives, since a knob emits deltas, not
+absolute targets:
+
+- `map.zoomBy({ delta })` — change zoom by `delta` (positive zooms in). The
+  result is clamped to the host's zoom range.
+- `map.panBy({ dx, dy })` — shift the view by `dx`/`dy` **screen pixels** (dx
+  right, dy down) at the current resolution. A zero delta is a no-op.
+
+A host applies these through its own view pipeline (the reference host routes
+them through the same centering path its UI uses, so chart and resource layers
+refresh), so relative controls resolve to an absolute target the host then
+applies — there is no separate animation contract in this version.
+
+**Errors** use the standard `error.data.reason` convention: `INVALID_POSITION`
+(malformed `map.center` position), `INVALID_BOUNDS` (malformed `map.fitBounds`
+bounds), `INVALID_ZOOM` / `INVALID_DELTA` / `INVALID_PAN` (non-finite
+`setZoom`/`zoomBy`/`panBy` arguments), `map.notReady` (the view is not yet
+available for a pixel pan).
 
 ### State storage
 
